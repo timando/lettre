@@ -1,7 +1,7 @@
 //! Lettre is a mailer written in Rust. lettre_email provides a simple email builder.
 //!
 
-#![doc(html_root_url = "https://docs.rs/lettre_email/0.9.2")]
+#![doc(html_root_url = "https://docs.rs/lettre_email/0.9.4")]
 #![deny(
     missing_docs,
     missing_debug_implementations,
@@ -16,9 +16,9 @@
 extern crate base64;
 extern crate email as email_format;
 extern crate lettre;
+pub extern crate mime;
 extern crate time;
 extern crate uuid;
-pub extern crate mime;
 
 pub mod error;
 
@@ -271,7 +271,13 @@ impl EmailBuilder {
         filename: &str,
         content_type: &Mime,
     ) -> Result<EmailBuilder, Error> {
-        let encoded_body = base64::encode(&body);
+        let encoded_body = base64::encode(&body)
+            .as_bytes()
+            .chunks(72)
+            // base64 encoding is guaranteed to return utf-8, so this won't panic
+            .map(|s| std::str::from_utf8(s).unwrap())
+            .collect::<Vec<_>>()
+            .join("\r\n");
         let content = PartBuilder::new()
             .body(encoded_body)
             .header((
@@ -301,10 +307,7 @@ impl EmailBuilder {
     pub fn text<S: Into<String>>(self, body: S) -> EmailBuilder {
         let text = PartBuilder::new()
             .body(body)
-            .header((
-                "Content-Type",
-                mime::TEXT_PLAIN_UTF_8.to_string(),
-            ))
+            .header(("Content-Type", mime::TEXT_PLAIN_UTF_8.to_string()))
             .build();
         self.child(text)
     }
@@ -313,10 +316,7 @@ impl EmailBuilder {
     pub fn html<S: Into<String>>(self, body: S) -> EmailBuilder {
         let html = PartBuilder::new()
             .body(body)
-            .header((
-                "Content-Type",
-                mime::TEXT_HTML_UTF_8.to_string(),
-            ))
+            .header(("Content-Type", mime::TEXT_HTML_UTF_8.to_string()))
             .build();
         self.child(html)
     }
@@ -329,18 +329,12 @@ impl EmailBuilder {
     ) -> EmailBuilder {
         let text = PartBuilder::new()
             .body(body_text)
-            .header((
-                "Content-Type",
-                mime::TEXT_PLAIN_UTF_8.to_string(),
-            ))
+            .header(("Content-Type", mime::TEXT_PLAIN_UTF_8.to_string()))
             .build();
 
         let html = PartBuilder::new()
             .body(body_html)
-            .header((
-                "Content-Type",
-                mime::TEXT_HTML_UTF_8.to_string(),
-            ))
+            .header(("Content-Type", mime::TEXT_HTML_UTF_8.to_string()))
             .build();
 
         let alternate = PartBuilder::new()
@@ -399,7 +393,7 @@ impl EmailBuilder {
                     }
                 }
                 let from = Some(EmailAddress::from_str(&match self.sender {
-                    Some(x) => Ok(x.address.clone()), // if we have a sender_header, use it
+                    Some(x) => Ok(x.address), // if we have a sender_header, use it
                     None => {
                         // use a from header
                         debug_assert!(self.from.len() <= 1); // else we'd have sender_header
@@ -411,15 +405,11 @@ impl EmailBuilder {
                                     // if it's an author group, use the first author
                                     Some(mailbox) => Ok(mailbox.address.clone()),
                                     // for an empty author group (the rarest of the rare cases)
-                                    None => Err(Error::Envelope(
-                                        LettreError::MissingFrom,
-                                    )), // empty envelope sender
+                                    None => Err(Error::Envelope(LettreError::MissingFrom)), // empty envelope sender
                                 },
                             },
                             // if we don't have a from header
-                            None => Err(Error::Envelope(
-                                LettreError::MissingFrom,
-                            )), // empty envelope sender
+                            None => Err(Error::Envelope(LettreError::MissingFrom)), // empty envelope sender
                         }
                     }
                 }?)?);
@@ -443,9 +433,7 @@ impl EmailBuilder {
                 .message
                 .header(Header::new_with_value("From".into(), from).unwrap());
         } else {
-            Err(Error::Envelope(
-                LettreError::MissingFrom,
-            ))?;
+            return Err(Error::Envelope(LettreError::MissingFrom));
         }
         if !self.cc.is_empty() {
             self.message = self
@@ -597,5 +585,4 @@ mod test {
             .as_slice()
         );
     }
-
 }
