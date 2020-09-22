@@ -143,6 +143,22 @@ impl SmtpClient {
         )
     }
 
+    /// Simple and secure transport, should be used when possible.
+    /// Creates an encrypted transport over submission port, using STARTTLS and
+    /// using the provided domain to validate TLS certificates.
+    pub fn new_starttls(domain: &str) -> Result<SmtpClient, Error> {
+        let mut tls_builder = TlsConnector::builder();
+        tls_builder.min_protocol_version(Some(DEFAULT_TLS_PROTOCOLS[0]));
+
+        let tls_parameters =
+            ClientTlsParameters::new(domain.to_string(), tls_builder.build().unwrap());
+
+        SmtpClient::new(
+            (domain, SUBMISSION_PORT),
+            ClientSecurity::Required(tls_parameters),
+        )
+    }
+
     /// Creates a new local SMTP client to port 25
     pub fn new_unencrypted_localhost() -> Result<SmtpClient, Error> {
         SmtpClient::new(("localhost", SMTP_PORT), ClientSecurity::None)
